@@ -1,5 +1,5 @@
-hash: d332790eaf0dd90a5d91b4fddfd82897055e261ff360d616cf363c0e689ab4f6
-updated: 2017-03-10T18:12:22.221261057Z
+hash: 778bce0b0c79723ffc06938e3f2d68a42c0c0e7a204770b567edeafef8bb4736
+updated: 2017-03-22T06:22:47.226016259Z
 imports:
 - name: github.com/armon/go-metrics
   version: 97c69685293dce4c0a2d0b19535179bbc976e4d2
@@ -12,10 +12,11 @@ imports:
 - name: github.com/go-gorp/gorp
   version: 4deece61034873cb5b5416e81abe4cea7bd0da72
 - name: github.com/go-yaml/yaml
-  version: a5b47d31c556af34a302ce5d659e6fea44d90de0
+  version: a3f3340b5840cee44f372bddb5880fcbc419b46a
 - name: github.com/gogo/protobuf
   version: 909568be09de550ed094403c2bf8a261b5bb730a
   subpackages:
+  - jsonpb
   - proto
 - name: github.com/golang/protobuf
   version: 8ee79997227bf9b34611aee7946ae64735e6fd93
@@ -43,6 +44,8 @@ imports:
   version: 3b8db5e93c4c02efbc313e17b2e796b0914a01fb
 - name: github.com/uber-go/zap
   version: a5783ee4b216a927da8f839c45cfbf9d694e1467
+- name: github.com/yuin/gopher-lua
+  version: 65fb8eeb2aa6d29a7b654d61afd1a07ce3897cc9
 - name: golang.org/x/crypto
   version: f6b343c37ca80bfa8ea539da67a0b621f84fab1d
   subpackages:

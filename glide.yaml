@@ -41,3 +41,4 @@ import:
   - '...'
 - package: github.com/gorhill/cronexpr
   version: ~1.0.0
+- package: github.com/yuin/gopher-lua
