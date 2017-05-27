@@ -197,12 +197,38 @@ FROM users, user_edge ` + filterQuery
 
 func (p *pipeline) friendAdd(l *zap.Logger, session *session, envelope *Envelope) {
 	addFriendRequest := envelope.GetFriendAdd()
-	if len(addFriendRequest.UserId) == 0 {
-		session.Send(ErrorMessageBadInput(envelope.CollationId, "User ID must be present"))
+	var userId []byte
+	switch addFriendRequest.Key.(type) {
+	case *TFriendAdd_UserId:
+		if len(addFriendRequest.GetUserId()) == 0 {
+			session.Send(ErrorMessageBadInput(envelope.CollationId, "User ID1 must be present"))
+			return
+		}
+
+		userId = addFriendRequest.GetUserId()
+	case *TFriendAdd_Handle:
+		if len(addFriendRequest.GetHandle()) == 0 {
+			session.Send(ErrorMessageBadInput(envelope.CollationId, "Handle must be present"))
+			return
+		}
+
+		query := `SELECT id FROM users WHERE handle=$1`
+		row := p.db.QueryRow(query, addFriendRequest.GetHandle())
+
+		err := row.Scan(&userId)
+		if err != nil {
+			session.Send(ErrorMessageBadInput(envelope.CollationId, "Handle not exist"))
+			return
+		}
+	case nil:
+		session.Send(ErrorMessageBadInput(envelope.CollationId, "A UserId or Handle is required"))
+		return
+	default:
+		session.Send(ErrorMessageBadInput(envelope.CollationId, "Unknown type"))
 		return
 	}
 
-	friendID, err := uuid.FromBytes(addFriendRequest.UserId)
+	friendID, err := uuid.FromBytes(userId)
 	if err != nil {
 		l.Warn("Could not add friend", zap.Error(err))
 		session.Send(ErrorMessageBadInput(envelope.CollationId, "Invalid User ID"))
