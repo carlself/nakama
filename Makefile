@@ -13,7 +13,7 @@
 # limitations under the License.
 
 BINNAME := nakama
-VERSION := 0.13.0-dev
+VERSION := 0.14.0-dev
 BUILDDIR := build
 COMMITID := $(shell git rev-parse --short HEAD 2>/dev/null || echo nosha)
 DOCKERDIR := install/docker/nakama
@@ -65,6 +65,8 @@ $(PLATFORMS):
 		tar -czf ${OUTDIR}-${VERSION}-$@-${arch}.tar.gz -C ${OUTDIR}-$@-${arch} .;\
 		echo "  Packaged '${OUTDIR}-$@-${arch}'";\
 	)
+
+windows: BINNAME := $(BINNAME).exe
 
 .PHONY: relupload
 relupload: JQ := $(shell jq --version)
