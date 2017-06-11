@@ -17,7 +17,7 @@ import (
 type opcode int64
 
 const (
-	PLAYER_JOIN        	= 0
+	PLAYER_JOIN  opcode = 0
 	MOVE         opcode = 1
 	HIT          opcode = 2
 )
