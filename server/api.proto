@@ -165,6 +165,8 @@ message Envelope {
     MatchmakeMatched matchmake_matched = 63;
 
     TRpc rpc = 64;
+
+    MatchNotify match_notify = 100;
   }
 }
 
@@ -667,4 +669,14 @@ message TLeaderboardRecords {
 message TRpc {
   string id = 1;
   bytes payload = 2;
+}
+
+message MatchUserData {
+  bytes user_id = 1;
+  bytes data = 2;
+}
+
+message MatchNotify {
+  int64 op_code = 2;
+  repeated MatchUserData data = 3;
 }

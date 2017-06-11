@@ -23,7 +23,7 @@ PROTOCFLAGS := -I . -I vendor --gogoslick_out=plugins=grpc:.
 GOBINDATA ?= go-bindata
 COCKROACH ?= cockroach
 
-PROTOS  := server/api.proto
+PROTOS  := server/match.proto server/api.proto
 GOFLAGS := -gcflags "-trimpath ${CURDIR}"
 LDFLAGS := -ldflags "-X main.version=${VERSION} -X main.commitID=${COMMITID}"
 PLATFORMS := darwin linux windows

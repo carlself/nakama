@@ -1,0 +1,30 @@
+syntax = "proto3";
+package server;
+
+option csharp_namespace = "HideAndSeek.Proto";
+
+message Vector
+{
+    float x = 1;
+    float y = 2;
+    float z = 3;
+}
+
+message PlayerState
+{
+    bytes user_id = 1;
+    Vector position = 2;
+    float rotation = 3;
+    int32 team = 4;
+}
+
+message PlayerList
+{
+    repeated PlayerState states = 1;
+}
+
+message PlayerMove
+{
+    Vector position = 1;
+    float rotation = 2;
+}

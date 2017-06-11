@@ -16,16 +16,19 @@ package server
 
 import (
 	"fmt"
+	"unicode/utf8"
+
 	"github.com/dgrijalva/jwt-go"
 	"github.com/satori/go.uuid"
 	"go.uber.org/zap"
-	"unicode/utf8"
 )
 
 type matchDataFilter struct {
 	userID    uuid.UUID
 	sessionID uuid.UUID
 }
+
+var activeMatchs = make(map[uuid.UUID]*match)
 
 func (p *pipeline) matchCreate(logger *zap.Logger, session *session, envelope *Envelope) {
 	matchID := uuid.NewV4()
@@ -100,6 +103,7 @@ func (p *pipeline) matchJoin(logger *zap.Logger, session *session, envelope *Env
 		return
 	}
 
+
 	topic := "match:" + matchID.String()
 
 	ps := p.tracker.ListByTopic(topic)
@@ -113,6 +117,25 @@ func (p *pipeline) matchJoin(logger *zap.Logger, session *session, envelope *Env
 	p.tracker.Track(session.id, topic, session.userID, PresenceMeta{
 		Handle: handle,
 	})
+
+	m, ok := activeMatchs[matchID]
+	if ok {
+		m.join<-Presence{
+			ID:			PresenceID{Node:p.config.GetName(), SessionID:session.id },
+			Topic:		topic,
+			UserID:		session.userID,
+			Meta: 		PresenceMeta{Handle:handle}}
+	} else if allowEmpty {
+		m = NewMatch(logger, p, matchID)
+		activeMatchs[matchID] = m
+
+		m.join<-Presence{
+			ID:			PresenceID{Node:p.config.GetName(), SessionID:session.id },
+			Topic:		topic,
+			UserID:		session.userID,
+			Meta: 		PresenceMeta{Handle:handle}}
+		//m.playerJoin(
+	}
 
 	userPresences := make([]*UserPresence, len(ps)+1)
 	for i := 0; i < len(ps); i++ {
@@ -168,6 +191,15 @@ func (p *pipeline) matchLeave(logger *zap.Logger, session *session, envelope *En
 
 	p.tracker.Untrack(session.id, topic, session.userID)
 
+	m, ok := activeMatchs[matchID]
+	if !ok {
+		m.leave<-Presence{
+			ID:			PresenceID{Node:p.config.GetName(), SessionID:session.id },
+			Topic:		topic,
+			UserID:		session.userID,
+			Meta: 		PresenceMeta{Handle:session.handle.Load()}}
+	}
+
 	session.Send(&Envelope{CollationId: envelope.CollationId})
 }
 
@@ -177,6 +209,15 @@ func (p *pipeline) matchDataSend(logger *zap.Logger, session *session, envelope 
 	matchID, err := uuid.FromBytes(matchIDBytes)
 	if err != nil {
 		return
+	}
+
+	m, ok := activeMatchs[matchID]
+	if ok {
+		//println("match",m)
+		err := m.op(session.id, session.userID, incoming.OpCode, incoming.Data)
+		if err != nil {
+			println(err)
+		}
 	}
 	topic := "match:" + matchID.String()
 	filterPresences := false
@@ -262,6 +303,5 @@ func (p *pipeline) matchDataSend(logger *zap.Logger, session *session, envelope 
 			},
 		},
 	}
-
 	p.messageRouter.Send(logger, ps, outgoing)
 }
