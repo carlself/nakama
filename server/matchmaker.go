@@ -18,6 +18,8 @@ import (
 	"errors"
 	"github.com/satori/go.uuid"
 	"sync"
+	"fmt"
+	"runtime/debug"
 )
 
 type Matchmaker interface {
@@ -57,6 +59,7 @@ func (m *MatchmakerService) Add(sessionID uuid.UUID, userID uuid.UUID, meta Pres
 	qmk := MatchmakerKey{ID: PresenceID{SessionID: sessionID, Node: m.name}, UserID: userID, Ticket: ticket}
 	qmp := &MatchmakerProfile{Meta: meta, RequiredCount: requiredCount}
 
+	fmt.Printf("1address=%p,match values count=%v\n", m,len(m.values))
 	m.Lock()
 	for mk, mp := range m.values {
 		if mk.ID.SessionID != sessionID && mk.UserID != userID && mp.RequiredCount == requiredCount {
@@ -73,9 +76,10 @@ func (m *MatchmakerService) Add(sessionID uuid.UUID, userID uuid.UUID, meta Pres
 		selected[qmk] = qmp
 	} else {
 		m.values[qmk] = qmp
+		fmt.Printf("2address=%p,match values count=%v\n", m,len(m.values))
 	}
 	m.Unlock()
-
+	fmt.Printf("3address=%p,match values count=%v\n", m,len(m.values))
 	if int64(len(selected)) != requiredCount {
 		return ticket, nil
 	} else {
@@ -84,6 +88,8 @@ func (m *MatchmakerService) Add(sessionID uuid.UUID, userID uuid.UUID, meta Pres
 }
 
 func (m *MatchmakerService) Remove(sessionID uuid.UUID, userID uuid.UUID, ticket uuid.UUID) error {
+	println("remove session")
+	debug.PrintStack()
 	mk := MatchmakerKey{ID: PresenceID{SessionID: sessionID, Node: m.name}, UserID: userID, Ticket: ticket}
 	var e error
 
@@ -100,6 +106,8 @@ func (m *MatchmakerService) Remove(sessionID uuid.UUID, userID uuid.UUID, ticket
 }
 
 func (m *MatchmakerService) RemoveAll(sessionID uuid.UUID) {
+	println("remove all")
+	debug.PrintStack()
 	m.Lock()
 	for mk, _ := range m.values {
 		if mk.ID.SessionID == sessionID {

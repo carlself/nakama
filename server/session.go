@@ -28,6 +28,13 @@ import (
 	"go.uber.org/zap"
 )
 
+const messageBufferSize = 100
+
+type messageWithErrorChan struct {
+	data []byte
+	err  chan<- error
+}
+
 type session struct {
 	sync.Mutex
 	logger           *zap.Logger
@@ -42,6 +49,7 @@ type session struct {
 	pingTicker       *time.Ticker
 	pingTickerStopCh chan (bool)
 	unregister       func(s *session)
+	send             chan messageWithErrorChan
 }
 
 // NewSession creates a new session which encapsulates a socket connection
@@ -64,6 +72,7 @@ func NewSession(logger *zap.Logger, config Config, userID uuid.UUID, handle stri
 		pingTicker:       time.NewTicker(time.Duration(config.GetTransport().PingPeriodMs) * time.Millisecond),
 		pingTickerStopCh: make(chan bool),
 		unregister:       unregister,
+		send:             make(chan messageWithErrorChan, messageBufferSize),
 	}
 }
 
@@ -77,8 +86,30 @@ func (s *session) Consume(processRequest func(logger *zap.Logger, session *sessi
 	})
 
 	// Send an initial ping immediately, then at intervals.
-	s.pingNow()
-	go s.pingPeriodically()
+	//s.pingNow()
+	//go s.pingPeriodically()
+
+	go func() {
+		for {
+			//s.Lock()
+			//defer s.Unlock()
+			if s.stopped {
+				return
+			}
+			message := <-s.send
+			fmt.Println("send channel size", len(s.send))
+
+			s.conn.SetWriteDeadline(time.Now().Add(time.Duration(s.config.GetTransport().WriteWaitMs) * time.Millisecond))
+			err := s.conn.WriteMessage(websocket.BinaryMessage, message.data)
+			if err != nil {
+				s.logger.Warn("Could not write message", zap.Error(err))
+				message.err <- err
+				break
+				//TODO investigate whether we need to cleanupClosedConnection if write fails
+			}
+			message.err <- err
+		}
+	}()
 
 	for {
 		_, data, err := s.conn.ReadMessage()
@@ -140,7 +171,7 @@ func (s *session) pingNow() bool {
 	return true
 }
 
-func (s *session) Send(envelope *Envelope) error {
+func (s *session) Send(envelope *Envelope)  error {
 	s.logger.Debug(fmt.Sprintf("Sending %T message", envelope.Payload), zap.String("cid", envelope.CollationId))
 
 	payload, err := proto.Marshal(envelope)
@@ -150,25 +181,31 @@ func (s *session) Send(envelope *Envelope) error {
 		return err
 	}
 
-	return s.SendBytes(payload)
+	return <-s.SendBytes(payload)
 }
 
-func (s *session) SendBytes(payload []byte) error {
-	// TODO Improve on mutex usage here.
-	s.Lock()
-	defer s.Unlock()
-	if s.stopped {
-		return nil
+func (s *session) SendBytes(payload []byte) <-chan error {
+	//s.send <- payload
+	errChan := make(chan error)
+	s.send <- messageWithErrorChan{data: payload,
+		err: errChan,
 	}
-
-	s.conn.SetWriteDeadline(time.Now().Add(time.Duration(s.config.GetTransport().WriteWaitMs) * time.Millisecond))
-	err := s.conn.WriteMessage(websocket.BinaryMessage, payload)
-	if err != nil {
-		s.logger.Warn("Could not write message", zap.Error(err))
-		//TODO investigate whether we need to cleanupClosedConnection if write fails
-	}
-
-	return err
+	return errChan
+	//// TODO Improve on mutex usage here.
+	//s.Lock()
+	//defer s.Unlock()
+	//if s.stopped {
+	//	return nil
+	//}
+	//
+	//s.conn.SetWriteDeadline(time.Now().Add(time.Duration(s.config.GetTransport().WriteWaitMs) * time.Millisecond))
+	//err := s.conn.WriteMessage(websocket.BinaryMessage, payload)
+	//if err != nil {
+	//	s.logger.Warn("Could not write message", zap.Error(err))
+	//	//TODO investigate whether we need to cleanupClosedConnection if write fails
+	//}
+	//
+	//return err
 }
 
 func (s *session) cleanupClosedConnection() {

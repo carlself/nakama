@@ -13,9 +13,12 @@ message Vector
 message PlayerState
 {
     bytes user_id = 1;
-    Vector position = 2;
-    float rotation = 3;
-    int32 team = 4;
+    string name = 2;
+    Vector position = 3;
+    float rotation = 4;
+    int32 team = 5;
+    int32 object_id = 6;
+    int32 life = 7; 
 }
 
 message PlayerList
@@ -25,6 +28,7 @@ message PlayerList
 
 message PlayerMove
 {
-    Vector position = 1;
-    float rotation = 2;
+    bytes user_id = 1;
+    Vector position = 2;
+    float rotation = 3;
 }

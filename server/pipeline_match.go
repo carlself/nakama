@@ -114,62 +114,18 @@ func (p *pipeline) matchJoin(logger *zap.Logger, session *session, envelope *Env
 		return
 	}
 
+	handle := session.handle.Load()
+	err = p.matchTracker.Join(matchID, allowEmpty, session.id, session.userID, PresenceMeta{Handle:handle})
 
-	topic := "match:" + matchID.String()
-
-	ps := p.tracker.ListByTopic(topic)
-	if !allowEmpty && len(ps) == 0 {
-		session.Send(ErrorMessage(envelope.CollationId, MATCH_NOT_FOUND, "Match not found"))
+	if err != nil {
+		session.Send(ErrorMessage(envelope.CollationId, MATCH_NOT_FOUND, err.Error()))
 		return
 	}
-
-	handle := session.handle.Load()
-
-	p.tracker.Track(session.id, topic, session.userID, PresenceMeta{
-		Handle: handle,
-	})
-
-	m, ok := activeMatchs[matchID]
-	if ok {
-		m.join<-Presence{
-			ID:			PresenceID{Node:p.config.GetName(), SessionID:session.id },
-			Topic:		topic,
-			UserID:		session.userID,
-			Meta: 		PresenceMeta{Handle:handle}}
-	} else if allowEmpty {
-		m = NewMatch(logger, p, matchID)
-		activeMatchs[matchID] = m
-
-		m.join<-Presence{
-			ID:			PresenceID{Node:p.config.GetName(), SessionID:session.id },
-			Topic:		topic,
-			UserID:		session.userID,
-			Meta: 		PresenceMeta{Handle:handle}}
-		//m.playerJoin(
-	}
-
-	userPresences := make([]*UserPresence, len(ps)+1)
-	for i := 0; i < len(ps); i++ {
-		p := ps[i]
-		userPresences[i] = &UserPresence{
-			UserId:    p.UserID.Bytes(),
-			SessionId: p.ID.SessionID.Bytes(),
-			Handle:    p.Meta.Handle,
-		}
-	}
-	self := &UserPresence{
-		UserId:    session.userID.Bytes(),
-		SessionId: session.id.Bytes(),
-		Handle:    handle,
-	}
-	userPresences[len(ps)] = self
 
 	session.Send(&Envelope{CollationId: envelope.CollationId, Payload: &Envelope_Matches{Matches: &TMatches{
 		Matches: []*Match{
 			&Match{
 				MatchId:   matchID.Bytes(),
-				Presences: userPresences,
-				Self:      self,
 			},
 		},
 	}}})

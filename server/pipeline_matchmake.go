@@ -24,6 +24,7 @@ func (p *pipeline) matchmakeAdd(logger *zap.Logger, session *session, envelope *
 		return
 	}
 
+	println("mach maked")
 	matchID := uuid.NewV4()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"mid": matchID.String(),

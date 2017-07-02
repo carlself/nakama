@@ -92,6 +92,7 @@ func main() {
 	messageRouter := server.NewMessageRouterService(sessionRegistry)
 	presenceNotifier := server.NewPresenceNotifier(jsonLogger, config.GetName(), trackerService, messageRouter)
 	trackerService.AddDiffListener(presenceNotifier.HandleDiff)
+	matchTracker := server.NewMatchTrackerService(jsonLogger, db, sessionRegistry, config.GetName())
 
 	runtime, err := server.NewRuntime(jsonLogger, multiLogger, db, config.GetRuntime())
 	if err != nil {
@@ -99,7 +100,7 @@ func main() {
 	}
 
 	socialClient := social.NewClient(5 * time.Second)
-	pipeline := server.NewPipeline(config, db, trackerService, matchmakerService, messageRouter, sessionRegistry, socialClient, runtime)
+	pipeline := server.NewPipeline(config, db, trackerService, matchmakerService,matchTracker, messageRouter, sessionRegistry, socialClient, runtime)
 	authService := server.NewAuthenticationService(jsonLogger, config, db, statsService, sessionRegistry, socialClient, pipeline, runtime)
 	dashboardService := server.NewDashboardService(jsonLogger, multiLogger, semver, config, statsService)
 
