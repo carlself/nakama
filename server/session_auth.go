@@ -186,7 +186,7 @@ func (a *authenticationService) configure() {
 			return
 		}
 
-		path := mux.Vars(r)["path"]
+		path := strings.ToLower(mux.Vars(r)["path"])
 		fn := a.runtime.GetRuntimeCallback(HTTP, path)
 		if fn == nil {
 			a.logger.Warn("HTTP invocation failed as path was not found", zap.String("path", path))
@@ -286,7 +286,7 @@ func (a *authenticationService) handleAuth(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	messageType := fmt.Sprintf("%T", authReq.Payload)
+	messageType := fmt.Sprintf("%T", authReq.Id)
 	a.logger.Debug("Received message", zap.String("type", messageType))
 	authReq, fnErr := RuntimeBeforeHookAuthentication(a.runtime, a.jsonpbMarshaler, a.jsonpbUnmarshaler, authReq)
 	if fnErr != nil {
@@ -303,18 +303,19 @@ func (a *authenticationService) handleAuth(w http.ResponseWriter, r *http.Reques
 	}
 
 	uid, _ := uuid.FromBytes(userID)
+	exp := time.Now().UTC().Add(time.Duration(a.config.GetSession().TokenExpiryMs) * time.Millisecond).Unix()
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"uid": uid.String(),
-		"exp": time.Now().UTC().Add(time.Duration(a.config.GetSession().TokenExpiryMs) * time.Millisecond).Unix(),
+		"exp": exp,
 		"han": handle,
 	})
 	signedToken, _ := token.SignedString(a.hmacSecretByte)
 
-	authResponse := &AuthenticateResponse{CollationId: authReq.CollationId, Payload: &AuthenticateResponse_Session_{&AuthenticateResponse_Session{Token: signedToken}}}
+	authResponse := &AuthenticateResponse{CollationId: authReq.CollationId, Id: &AuthenticateResponse_Session_{&AuthenticateResponse_Session{Token: signedToken}}}
 	a.sendAuthResponse(w, r, 200, authResponse)
 
-	RuntimeAfterHookAuthentication(a.logger, a.runtime, a.jsonpbMarshaler, authReq)
+	RuntimeAfterHookAuthentication(a.logger, a.runtime, a.jsonpbMarshaler, authReq, uid, handle, exp)
 }
 
 func (a *authenticationService) sendAuthError(w http.ResponseWriter, r *http.Request, error string, errorCode int, authRequest *AuthenticateRequest) {
@@ -322,7 +323,7 @@ func (a *authenticationService) sendAuthError(w http.ResponseWriter, r *http.Req
 	if authRequest != nil {
 		collationID = authRequest.CollationId
 	}
-	authResponse := &AuthenticateResponse{CollationId: collationID, Payload: &AuthenticateResponse_Error_{&AuthenticateResponse_Error{
+	authResponse := &AuthenticateResponse{CollationId: collationID, Id: &AuthenticateResponse_Error_{&AuthenticateResponse_Error{
 		Code:    int32(AUTH_ERROR),
 		Message: error,
 		Request: authRequest,
@@ -365,7 +366,7 @@ func (a *authenticationService) sendAuthResponse(w http.ResponseWriter, r *http.
 func (a *authenticationService) login(authReq *AuthenticateRequest) ([]byte, string, string, int) {
 	// Route to correct login handler
 	var loginFunc func(authReq *AuthenticateRequest) ([]byte, string, int64, string, int)
-	switch authReq.Payload.(type) {
+	switch authReq.Id.(type) {
 	case *AuthenticateRequest_Device:
 		loginFunc = a.loginDevice
 	case *AuthenticateRequest_Facebook:
@@ -593,12 +594,17 @@ func (a *authenticationService) loginCustom(authReq *AuthenticateRequest) ([]byt
 func (a *authenticationService) register(authReq *AuthenticateRequest) ([]byte, string, string, int) {
 	// Route to correct register handler
 	var registerFunc func(tx *sql.Tx, authReq *AuthenticateRequest) ([]byte, string, string, int)
+	var registerHook func(authReq *AuthenticateRequest, userID []byte, handle string)
 
-	switch authReq.Payload.(type) {
+	switch authReq.Id.(type) {
 	case *AuthenticateRequest_Device:
 		registerFunc = a.registerDevice
 	case *AuthenticateRequest_Facebook:
 		registerFunc = a.registerFacebook
+		registerHook = func(authReq *AuthenticateRequest, userID []byte, handle string) {
+			l := a.logger.With(zap.String("user_id", uuid.FromBytesOrNil(userID).String()))
+			a.pipeline.addFacebookFriends(l, userID, authReq.GetFacebook())
+		}
 	case *AuthenticateRequest_Google:
 		registerFunc = a.registerGoogle
 	case *AuthenticateRequest_GameCenter_:
@@ -637,12 +643,18 @@ func (a *authenticationService) register(authReq *AuthenticateRequest) ([]byte, 
 		return nil, "", errorCouldNotRegister, 500
 	}
 
+	// Run any post-registration steps outside the main registration transaction.
+	// Errors here should not cause registration to fail.
+	if registerHook != nil {
+		registerHook(authReq, userID, handle)
+	}
+
 	a.logger.Info("Registration complete", zap.String("uid", uuid.FromBytesOrNil(userID).String()))
 	return userID, handle, errorMessage, errorCode
 }
 
 func (a *authenticationService) addUserEdgeMetadata(tx *sql.Tx, userID []byte, updatedAt int64) error {
-	_, err := tx.Exec("INSERT INTO user_edge_metadata VALUES ($1, 0, 0, $2)", userID, updatedAt)
+	_, err := tx.Exec("INSERT INTO user_edge_metadata (source_id, count, state, updated_at) VALUES ($1, 0, 0, $2)", userID, updatedAt)
 	return err
 }
 
@@ -734,9 +746,6 @@ WHERE NOT EXISTS
 		a.logger.Warn("Could not register new Facebook profile, rows affected error")
 		return nil, "", errorIDAlreadyInUse, 401
 	}
-
-	l := a.logger.With(zap.String("user_id", uuid.FromBytesOrNil(userID).String()))
-	a.pipeline.addFacebookFriends(l, userID, accessToken)
 
 	err = a.addUserEdgeMetadata(tx, userID, updatedAt)
 	if err != nil {
@@ -994,6 +1003,7 @@ WHERE NOT EXISTS
 
 	err = a.addUserEdgeMetadata(tx, userID, updatedAt)
 	if err != nil {
+		a.logger.Error("Could not register new custom profile, user edge metadata error", zap.Error(err))
 		return nil, "", errorCouldNotRegister, 401
 	}
 

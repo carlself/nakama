@@ -16,6 +16,35 @@ package server
 
 import "go.uber.org/zap"
 
+func (p *pipeline) storageList(logger *zap.Logger, session *session, envelope *Envelope) {
+	incoming := envelope.GetStorageList()
+
+	data, cursor, code, err := StorageList(logger, p.db, session.userID, incoming.UserId, incoming.Bucket, incoming.Collection, incoming.Limit, incoming.Cursor)
+	if err != nil {
+		session.Send(ErrorMessage(envelope.CollationId, code, err.Error()))
+		return
+	}
+
+	storageData := make([]*TStorageData_StorageData, len(data))
+	for i, d := range data {
+		storageData[i] = &TStorageData_StorageData{
+			Bucket:          d.Bucket,
+			Collection:      d.Collection,
+			Record:          d.Record,
+			UserId:          d.UserId,
+			Value:           d.Value,
+			Version:         d.Version,
+			PermissionRead:  int32(d.PermissionRead),
+			PermissionWrite: int32(d.PermissionWrite),
+			CreatedAt:       d.CreatedAt,
+			UpdatedAt:       d.UpdatedAt,
+			ExpiresAt:       d.ExpiresAt,
+		}
+	}
+
+	session.Send(&Envelope{CollationId: envelope.CollationId, Payload: &Envelope_StorageData{StorageData: &TStorageData{Data: storageData, Cursor: cursor}}})
+}
+
 func (p *pipeline) storageFetch(logger *zap.Logger, session *session, envelope *Envelope) {
 	incoming := envelope.GetStorageFetch()
 	if len(incoming.Keys) == 0 {
@@ -86,9 +115,9 @@ func (p *pipeline) storageWrite(logger *zap.Logger, session *session, envelope *
 		return
 	}
 
-	storageKeys := make([]*TStorageKey_StorageKey, len(keys))
+	storageKeys := make([]*TStorageKeys_StorageKey, len(keys))
 	for i, key := range keys {
-		storageKeys[i] = &TStorageKey_StorageKey{
+		storageKeys[i] = &TStorageKeys_StorageKey{
 			Bucket:     key.Bucket,
 			Collection: key.Collection,
 			Record:     key.Record,
@@ -96,7 +125,7 @@ func (p *pipeline) storageWrite(logger *zap.Logger, session *session, envelope *
 		}
 	}
 
-	session.Send(&Envelope{CollationId: envelope.CollationId, Payload: &Envelope_StorageKey{StorageKey: &TStorageKey{Keys: storageKeys}}})
+	session.Send(&Envelope{CollationId: envelope.CollationId, Payload: &Envelope_StorageKeys{StorageKeys: &TStorageKeys{Keys: storageKeys}}})
 }
 
 func (p *pipeline) storageRemove(logger *zap.Logger, session *session, envelope *Envelope) {

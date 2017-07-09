@@ -4,6 +4,21 @@ All notable changes to this project are documented below.
 The format is based on [keep a changelog](http://keepachangelog.com/) and this project uses [semantic versioning](http://semver.org/).
 
 ## [Unreleased]
+### Added
+- New storage list feature.
+
+### Changed
+- Run Facebook friends import after registration completes.
+- Streamline command line flags to be inline with the config file. 
+
+### Changed
+- Restructure and stabilize API messages.
+- Add batch operations Friends social graph.
+
+### Fixed
+- Invocation type was always set to "Before" in After Runtime scripts.
+- User ID was not passed to context in After Authentication invocations.
+- Authentication runtime invocation messages were named with leading "." and trailing "_".
 
 ## [0.13.1] - 2017-06-08
 ### Added
