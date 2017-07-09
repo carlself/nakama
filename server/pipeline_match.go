@@ -115,7 +115,7 @@ func (p *pipeline) matchJoin(logger *zap.Logger, session *session, envelope *Env
 	}
 
 	handle := session.handle.Load()
-	err = p.matchTracker.Join(matchID, allowEmpty, session.id, session.userID, PresenceMeta{Handle:handle})
+	err = p.matchTracker.Join(matchID, allowEmpty, session.id, session.userID, PresenceMeta{Handle: handle})
 
 	if err != nil {
 		session.Send(ErrorMessage(envelope.CollationId, MATCH_NOT_FOUND, err.Error()))
@@ -173,11 +173,11 @@ func (p *pipeline) matchLeave(logger *zap.Logger, session *session, envelope *En
 
 	m, ok := activeMatchs[matchID]
 	if !ok {
-		m.leave<-Presence{
-			ID:			PresenceID{Node:p.config.GetName(), SessionID:session.id },
-			Topic:		topic,
-			UserID:		session.userID,
-			Meta: 		PresenceMeta{Handle:session.handle.Load()}}
+		m.leave <- Presence{
+			ID:     PresenceID{Node: p.config.GetName(), SessionID: session.id},
+			Topic:  topic,
+			UserID: session.userID,
+			Meta:   PresenceMeta{Handle: session.handle.Load()}}
 	}
 
 	session.Send(&Envelope{CollationId: envelope.CollationId})
@@ -191,14 +191,17 @@ func (p *pipeline) matchDataSend(logger *zap.Logger, session *session, envelope 
 		return
 	}
 
-	m, ok := activeMatchs[matchID]
+	m, ok := p.matchTracker.FindMatch(matchID)
 	if ok {
-		//println("match",m)
-		err := m.op(session.id, session.userID, incoming.OpCode, incoming.Data)
+		err := m.op(session.id, session.userID, PresenceMeta{Handle:session.handle.Load()},incoming.OpCode, incoming.Data)
 		if err != nil {
 			println(err)
 		}
+	} else {
+		return
 	}
+
+	return
 	topic := "match:" + matchID.String()
 	filterPresences := false
 	var filters []*matchDataFilter
