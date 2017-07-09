@@ -9,6 +9,7 @@ import (
 
 type MatchTracker interface {
 	Join(matchID uuid.UUID, allowEmpty bool, sessionID uuid.UUID, userID uuid.UUID, meta PresenceMeta) error
+	Leave(matchID uuid.UUID, sessionID uuid.UUID, userID uuid.UUID, meta PresenceMeta) error
 	FindMatch(matchId uuid.UUID) (*match, bool)
 }
 
@@ -43,6 +44,21 @@ func (s *matchTrackerService) Join(matchID uuid.UUID, allowEmpty bool, sessionID
 		s.values[matchID] = m
 
 		m.join <- Presence{
+			ID:     PresenceID{Node: s.name, SessionID: sessionID},
+			UserID: userID,
+			Meta:   meta}
+	} else {
+		return errors.New("Match not found")
+	}
+
+	return nil
+}
+
+func (s *matchTrackerService) Leave(matchID uuid.UUID, sessionID uuid.UUID, userID uuid.UUID, meta PresenceMeta) error {
+	m, ok := s.values[matchID]
+
+	if ok {
+		m.leave <- Presence{
 			ID:     PresenceID{Node: s.name, SessionID: sessionID},
 			UserID: userID,
 			Meta:   meta}

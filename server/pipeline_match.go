@@ -28,8 +28,6 @@ type matchDataFilter struct {
 	sessionID uuid.UUID
 }
 
-var activeMatchs = make(map[uuid.UUID]*match)
-
 func (p *pipeline) matchCreate(logger *zap.Logger, session *session, envelope *Envelope) {
 	matchID := uuid.NewV4()
 
@@ -147,37 +145,12 @@ func (p *pipeline) matchLeave(logger *zap.Logger, session *session, envelope *En
 		session.Send(ErrorMessageBadInput(envelope.CollationId, "Invalid match ID"))
 		return
 	}
-	topic := "match:" + matchID.String()
 
-	ps := p.tracker.ListByTopic(topic)
-	if len(ps) == 0 {
-		session.Send(ErrorMessage(envelope.CollationId, MATCH_NOT_FOUND, "Match not found"))
+	handle := session.handle.Load()
+	err = p.matchTracker.Leave(matchID, session.id, session.userID, PresenceMeta{Handle: handle})
+	if err != nil {
+		session.Send(ErrorMessage(envelope.CollationId, MATCH_NOT_FOUND, err.Error()))
 		return
-	}
-
-	found := false
-	for _, p := range ps {
-		if p.ID.SessionID == session.id && p.UserID == session.userID {
-			found = true
-			break
-		}
-	}
-
-	// If sender wasn't part of the match.
-	if !found {
-		session.Send(ErrorMessage(envelope.CollationId, MATCH_NOT_FOUND, "Match not found"))
-		return
-	}
-
-	p.tracker.Untrack(session.id, topic, session.userID)
-
-	m, ok := activeMatchs[matchID]
-	if !ok {
-		m.leave <- Presence{
-			ID:     PresenceID{Node: p.config.GetName(), SessionID: session.id},
-			Topic:  topic,
-			UserID: session.userID,
-			Meta:   PresenceMeta{Handle: session.handle.Load()}}
 	}
 
 	session.Send(&Envelope{CollationId: envelope.CollationId})
@@ -200,91 +173,4 @@ func (p *pipeline) matchDataSend(logger *zap.Logger, session *session, envelope 
 	} else {
 		return
 	}
-
-	return
-	topic := "match:" + matchID.String()
-	filterPresences := false
-	var filters []*matchDataFilter
-	if len(incoming.Presences) != 0 {
-		filterPresences = true
-		filters = make([]*matchDataFilter, len(incoming.Presences))
-		for i := 0; i < len(incoming.Presences); i++ {
-			userID, err := uuid.FromBytes(incoming.Presences[i].UserId)
-			if err != nil {
-				return
-			}
-			sessionID, err := uuid.FromBytes(incoming.Presences[i].SessionId)
-			if err != nil {
-				return
-			}
-			filters[i] = &matchDataFilter{userID: userID, sessionID: sessionID}
-		}
-	}
-
-	// TODO check membership before looking up all members.
-
-	ps := p.tracker.ListByTopic(topic)
-	if len(ps) == 0 {
-		return
-	}
-
-	senderFound := false
-	for i := 0; i < len(ps); i++ {
-		p := ps[i]
-		if p.ID.SessionID == session.id && p.UserID == session.userID {
-			// Don't echo back to sender.
-			ps[i] = ps[len(ps)-1]
-			ps = ps[:len(ps)-1]
-			senderFound = true
-			if !filterPresences {
-				break
-			} else {
-				i--
-			}
-		} else if filterPresences {
-			// Check if this presence is specified in the filters.
-			filterFound := false
-			for j := 0; j < len(filters); j++ {
-				if filter := filters[j]; p.ID.SessionID == filter.sessionID && p.UserID == filter.userID {
-					// If a filter matches, drop it.
-					filters[j] = filters[len(filters)-1]
-					filters = filters[:len(filters)-1]
-					filterFound = true
-					break
-				}
-			}
-			if !filterFound {
-				// If this presence wasn't in the filters, it's not needed.
-				ps[i] = ps[len(ps)-1]
-				ps = ps[:len(ps)-1]
-				i--
-			}
-		}
-	}
-
-	// If sender wasn't in the presences for this match, they're not a member.
-	if !senderFound {
-		return
-	}
-
-	// Check if there are any recipients left.
-	if len(ps) == 0 {
-		return
-	}
-
-	outgoing := &Envelope{
-		Payload: &Envelope_MatchData{
-			MatchData: &MatchData{
-				MatchId: matchIDBytes,
-				Presence: &UserPresence{
-					UserId:    session.userID.Bytes(),
-					SessionId: session.id.Bytes(),
-					Handle:    session.handle.Load(),
-				},
-				OpCode: incoming.OpCode,
-				Data:   incoming.Data,
-			},
-		},
-	}
-	p.messageRouter.Send(logger, ps, outgoing)
 }

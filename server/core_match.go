@@ -121,11 +121,6 @@ func (m *match) playerJoin(ps Presence) error {
 	m.initPlayer(mu)
 	println("init player", mu.team, mu.life, mu.objectId)
 
-	//receivers := make([]Presence, len(m.users))
-	//for k := range m.users {
-	//	receivers = append(receivers, k)
-	//}
-
 	m.users[ps] = mu
 
 	data, err := mu.marshal()
@@ -136,11 +131,6 @@ func (m *match) playerJoin(ps Presence) error {
 		return errors.New("Marshal user state error")
 	}
 
-	//state := &PlayerState{UserId:ps.UserID.Bytes(),Name:mu.user.Fullname,
-	//	Position:&Vector{0.0,0.0,0.0}, Rotation:0.0, Team:int32(mu.team),
-	//	ObjectId:mu.objectId, Life:mu.life,
-	//}
-	//data, _ := state.Marshal()
 	println("notify new match user data to others", ps.UserID.String())
 	err = m.broadcastNotification(PLAYER_JOIN, []*MatchUserData{&MatchUserData{UserId: ps.UserID.Bytes(), Data: data}}, func(p Presence) bool {
 		return p == ps
@@ -148,8 +138,6 @@ func (m *match) playerJoin(ps Presence) error {
 	if err != nil {
 		return errors.New("Broadcast user data error")
 	}
-	//m.sendNotification(receivers, PLAYER_JOIN, []*MatchUserData{&MatchUserData{UserId:ps.UserID.Bytes(), Data:data}}, nil)
-	//if len(m.users) > 1 {
 	otherUserData, err := m.aggregatePlayerState(nil)
 	if err != nil {
 		return errors.New("Marshal other users data error")
@@ -159,9 +147,17 @@ func (m *match) playerJoin(ps Presence) error {
 	if err != nil {
 		return errors.New("Notify other user data error")
 	}
-	//}
 
 	return nil
+}
+
+func (m *match) playerLeave(user Presence) {
+	if m.users[user].team == Hider {
+		m.hiderCount--
+	} else if m.users[user].team == Seeker {
+		m.seekerCount--
+	}
+	delete(m.users, user)
 }
 
 func (m *match) initPlayer(mu *matchPlayer) {
@@ -173,15 +169,6 @@ func (m *match) initPlayer(mu *matchPlayer) {
 		m.seekerCount++
 		mu.life = 5
 	}
-}
-
-func (m *match) playerLeave(user Presence) {
-	if m.users[user].team == Hider {
-		m.hiderCount--
-	} else if m.users[user].team == Seeker {
-		m.seekerCount--
-	}
-	delete(m.users, user)
 }
 
 func (m *match) assignTeam(mu *matchPlayer) {
@@ -229,7 +216,7 @@ func (m *match) op(sessionId uuid.UUID, userId uuid.UUID, meta PresenceMeta, cod
 }
 
 func (m *match) playerMove(ps Presence, data []byte) error {
-	mu, ok := m.users[ps] // m.getMatchPlayer(sessionId, userId)
+	mu, ok := m.users[ps]
 	if !ok {
 		return errors.New("Cound not retieve user in match")
 	}
@@ -321,7 +308,6 @@ func (m *match) broadcastNotification(op opcode, data []*MatchUserData, userFilt
 	}
 
 	return nil
-	//m.messageRouter.Send(m.logger, receiver, outgoing)
 }
 
 func (m *match) sendNotification(ps Presence, op opcode, data []*MatchUserData) error {
