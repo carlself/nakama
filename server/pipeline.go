@@ -29,7 +29,7 @@ type pipeline struct {
 	db                *sql.DB
 	tracker           Tracker
 	matchmaker        Matchmaker
-	matchTracker			MatchTracker
+	matchTracker      MatchTracker
 	hmacSecretByte    []byte
 	messageRouter     MessageRouter
 	sessionRegistry   *SessionRegistry
@@ -40,13 +40,13 @@ type pipeline struct {
 }
 
 // NewPipeline creates a new Pipeline
-func NewPipeline(config Config, db *sql.DB, tracker Tracker, matchmaker Matchmaker, matchTracker MatchTracker,messageRouter MessageRouter, registry *SessionRegistry, socialClient *social.Client, runtime *Runtime) *pipeline {
+func NewPipeline(config Config, db *sql.DB, tracker Tracker, matchmaker Matchmaker, matchTracker MatchTracker, messageRouter MessageRouter, registry *SessionRegistry, socialClient *social.Client, runtime *Runtime) *pipeline {
 	return &pipeline{
 		config:          config,
 		db:              db,
 		tracker:         tracker,
 		matchmaker:      matchmaker,
-		matchTracker:			matchTracker,
+		matchTracker:    matchTracker,
 		hmacSecretByte:  []byte(config.GetSession().EncryptionKey),
 		messageRouter:   messageRouter,
 		sessionRegistry: registry,

@@ -24,10 +24,10 @@ import (
 
 	"encoding/base64"
 
+	"encoding/hex"
 	"github.com/satori/go.uuid"
 	"github.com/yuin/gopher-lua"
 	"go.uber.org/zap"
-	"encoding/hex"
 )
 
 type NakamaxModule struct {

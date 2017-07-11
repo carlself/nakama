@@ -122,6 +122,7 @@ func (s *session) pingNow() bool {
 		s.Unlock()
 		return false
 	}
+	//s.logger.Warn("Ping now")
 	s.conn.SetWriteDeadline(time.Now().Add(time.Duration(s.config.GetTransport().WriteWaitMs) * time.Millisecond))
 	err := s.conn.WriteMessage(websocket.PingMessage, []byte{})
 	s.Unlock()

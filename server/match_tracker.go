@@ -5,48 +5,67 @@ import (
 	"errors"
 	"github.com/satori/go.uuid"
 	"go.uber.org/zap"
+	"sync"
 )
 
 type MatchTracker interface {
 	Join(matchID uuid.UUID, allowEmpty bool, sessionID uuid.UUID, userID uuid.UUID, meta PresenceMeta) error
 	Leave(matchID uuid.UUID, sessionID uuid.UUID, userID uuid.UUID, meta PresenceMeta) error
 	FindMatch(matchId uuid.UUID) (*match, bool)
+	RemoveAll(sessionId uuid.UUID)
 }
 
 type matchTrackerService struct {
-	name     string
-	logger   *zap.Logger
-	db       *sql.DB
-	registry *SessionRegistry
-	values   map[uuid.UUID]*match
+	sync.RWMutex
+	name            string
+	logger          *zap.Logger
+	db              *sql.DB
+	registry        *SessionRegistry
+	values          map[uuid.UUID]*match
+	sessionMatchMap map[uuid.UUID]uuid.UUID
 }
 
 func NewMatchTrackerService(logger *zap.Logger, db *sql.DB, registry *SessionRegistry, name string) MatchTracker {
 	return &matchTrackerService{
-		name:     name,
-		logger:   logger,
-		db:       db,
-		registry: registry,
-		values:   make(map[uuid.UUID]*match),
+		name:            name,
+		logger:          logger,
+		db:              db,
+		registry:        registry,
+		values:          make(map[uuid.UUID]*match),
+		sessionMatchMap: make(map[uuid.UUID]uuid.UUID),
 	}
 }
 
 func (s *matchTrackerService) Join(matchID uuid.UUID, allowEmpty bool, sessionID uuid.UUID, userID uuid.UUID, meta PresenceMeta) error {
+	s.RLock()
 	m, ok := s.values[matchID]
+	s.RUnlock()
 
 	if ok {
-		m.join <- Presence{
+		m.playerJoin(Presence{
 			ID:     PresenceID{Node: s.name, SessionID: sessionID},
 			UserID: userID,
-			Meta:   meta}
+			Meta:   meta})
+
+		s.Lock()
+		s.sessionMatchMap[sessionID] = matchID
+		s.Unlock()
 	} else if allowEmpty {
 		m = NewMatch(s.logger, s.db, s.registry, matchID, s.name)
-		s.values[matchID] = m
+		s.logger.Info("Match created", zap.String("MatchId", matchID.String()))
 
-		m.join <- Presence{
+		s.Lock()
+		s.values[matchID] = m
+		s.Unlock()
+
+		m.playerJoin(Presence{
 			ID:     PresenceID{Node: s.name, SessionID: sessionID},
 			UserID: userID,
-			Meta:   meta}
+			Meta:   meta})
+
+		s.Lock()
+		s.sessionMatchMap[sessionID] = matchID
+		s.Unlock()
 	} else {
 		return errors.New("Match not found")
 	}
@@ -55,13 +74,22 @@ func (s *matchTrackerService) Join(matchID uuid.UUID, allowEmpty bool, sessionID
 }
 
 func (s *matchTrackerService) Leave(matchID uuid.UUID, sessionID uuid.UUID, userID uuid.UUID, meta PresenceMeta) error {
+	s.Lock()
 	m, ok := s.values[matchID]
+	s.Unlock()
 
 	if ok {
-		m.leave <- Presence{
+		m.playerLeave(Presence{
 			ID:     PresenceID{Node: s.name, SessionID: sessionID},
 			UserID: userID,
-			Meta:   meta}
+			Meta:   meta})
+
+		delete(s.sessionMatchMap, sessionID)
+
+		if m.isAbandoned() {
+			delete (s.values, matchID)
+			s.logger.Info("Match abandoned", zap.String("MatchId", matchID.String()))
+		}
 	} else {
 		return errors.New("Match not found")
 	}
@@ -70,6 +98,27 @@ func (s *matchTrackerService) Leave(matchID uuid.UUID, sessionID uuid.UUID, user
 }
 
 func (s *matchTrackerService) FindMatch(matchId uuid.UUID) (*match, bool) {
+	s.RLock()
 	m, ok := s.values[matchId]
+	s.RUnlock()
 	return m, ok
+}
+
+func (s *matchTrackerService) RemoveAll(sessionID uuid.UUID) {
+	s.Lock()
+	defer s.Unlock()
+
+	matchId, ok := s.sessionMatchMap[sessionID]
+	if ok {
+		delete(s.sessionMatchMap, sessionID)
+		match, ok := s.values[matchId]
+
+		if ok {
+			match.playerDisconnect(sessionID)
+			if match.isAbandoned() {
+				delete (s.values, matchId)
+				s.logger.Info("Match abandoned", zap.String("MatchId", matchId.String()))
+			}
+		}
+	}
 }

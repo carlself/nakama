@@ -94,6 +94,13 @@ func main() {
 	trackerService.AddDiffListener(presenceNotifier.HandleDiff)
 	matchTracker := server.NewMatchTrackerService(jsonLogger, db, sessionRegistry, config.GetName())
 
+	//a.matchmaker.RemoveAll(c.id) // Drop all active matchmaking requests for this session.
+	//a.tracker.UntrackAll(c.id)   // Drop all tracked presences for this session.
+	//a.matchTracker.RemoveAll(c.id)
+	sessionRegistry.AddUntrackListener(matchTracker.RemoveAll)
+	sessionRegistry.AddUntrackListener(trackerService.UntrackAll)
+	sessionRegistry.AddUntrackListener(matchTracker.RemoveAll)
+
 	runtime, err := server.NewRuntime(jsonLogger, multiLogger, db, config.GetRuntime())
 	if err != nil {
 		multiLogger.Fatal("Failed initializing runtime modules.", zap.Error(err))

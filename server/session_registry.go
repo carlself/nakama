@@ -25,22 +25,30 @@ import (
 // SessionRegistry maintains a list of sessions to their IDs. This is thread-safe.
 type SessionRegistry struct {
 	sync.RWMutex
-	logger     *zap.Logger
-	config     Config
-	tracker    Tracker
-	matchmaker Matchmaker
-	sessions   map[uuid.UUID]*session
+	logger           *zap.Logger
+	config           Config
+	tracker          Tracker
+	matchmaker       Matchmaker
+	sessions         map[uuid.UUID]*session
+	untrackListeners []func(uuid.UUID)
 }
 
 // NewSessionRegistry creates a new SessionRegistry
 func NewSessionRegistry(logger *zap.Logger, config Config, tracker Tracker, matchmaker Matchmaker) *SessionRegistry {
 	return &SessionRegistry{
-		logger:     logger,
-		config:     config,
-		tracker:    tracker,
-		matchmaker: matchmaker,
-		sessions:   make(map[uuid.UUID]*session),
+		logger:           logger,
+		config:           config,
+		tracker:          tracker,
+		matchmaker:       matchmaker,
+		sessions:         make(map[uuid.UUID]*session),
+		untrackListeners: make([]func(uuid.UUID), 0),
 	}
+}
+
+func (a *SessionRegistry) AddUntrackListener(f func(uuid.UUID)) {
+	a.Lock()
+	a.untrackListeners = append(a.untrackListeners, f)
+	a.Unlock()
 }
 
 func (a *SessionRegistry) stop() {
@@ -49,8 +57,11 @@ func (a *SessionRegistry) stop() {
 		if a.sessions[session.id] != nil {
 			delete(a.sessions, session.id)
 			go func() {
-				a.matchmaker.RemoveAll(session.id) // Drop all active matchmaking requests for this session.
-				a.tracker.UntrackAll(session.id)   // Drop all tracked presences for this session.
+				//a.matchmaker.RemoveAll(session.id) // Drop all active matchmaking requests for this session.
+				//a.tracker.UntrackAll(session.id)   // Drop all tracked presences for this session.
+				for _, f := range a.untrackListeners {
+					f(session.id)
+				}
 			}()
 		}
 		session.close()
@@ -80,8 +91,13 @@ func (a *SessionRegistry) remove(c *session) {
 	if a.sessions[c.id] != nil {
 		delete(a.sessions, c.id)
 		go func() {
-			a.matchmaker.RemoveAll(c.id) // Drop all active matchmaking requests for this session.
-			a.tracker.UntrackAll(c.id)   // Drop all tracked presences for this session.
+			//a.matchmaker.RemoveAll(c.id) // Drop all active matchmaking requests for this session.
+			//a.tracker.UntrackAll(c.id)   // Drop all tracked presences for this session.
+			//a.matchTracker.RemoveAll(c.id)
+
+			for _, f := range a.untrackListeners {
+				f(c.id)
+			}
 		}()
 	}
 	a.Unlock()

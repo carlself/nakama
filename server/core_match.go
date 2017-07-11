@@ -47,7 +47,6 @@ type matchPlayer struct {
 	rotation float32
 	life     int32
 	objectId int32
-	//send 			chan []byte
 }
 
 func (mp *matchPlayer) marshal() ([]byte, error) {
@@ -59,14 +58,14 @@ func (mp *matchPlayer) marshal() ([]byte, error) {
 }
 
 type match struct {
-	sync.Mutex
-	name        string
-	logger      *zap.Logger
-	db          *sql.DB
-	registry    *SessionRegistry
-	forward     chan []proto.Message
-	join        chan Presence
-	leave       chan Presence
+	sync.RWMutex
+	name     string
+	logger   *zap.Logger
+	db       *sql.DB
+	registry *SessionRegistry
+	forward  chan []proto.Message
+	//join        chan Presence
+	//leave       chan Presence
 	users       map[Presence]*matchPlayer
 	hiderCount  int32
 	seekerCount int32
@@ -81,29 +80,15 @@ func NewMatch(l *zap.Logger, db *sql.DB, registry *SessionRegistry, matchId uuid
 		logger:   logger,
 		db:       db,
 		registry: registry,
-		join:     make(chan Presence),
-		leave:    make(chan Presence),
-		users:    make(map[Presence]*matchPlayer),
-		matchId:  matchId,
+		users:   make(map[Presence]*matchPlayer),
+		matchId: matchId,
 	}
 
-	go m.run()
+	//go m.run()
 
 	return m
 }
 
-func (m *match) run() {
-	for {
-		select {
-		case ps := <-m.join:
-			m.playerJoin(ps)
-		case ps := <-m.leave:
-			m.playerLeave(ps)
-		case msg := <-m.forward:
-			println(msg)
-		}
-	}
-}
 
 func (m *match) playerJoin(ps Presence) error {
 	users, err := UsersFetchIds(m.logger, m.db, [][]byte{ps.UserID.Bytes()})
@@ -119,19 +104,20 @@ func (m *match) playerJoin(ps Presence) error {
 		user: users[0],
 	}
 	m.initPlayer(mu)
-	println("init player", mu.team, mu.life, mu.objectId)
+	//println("init player", mu.team, mu.life, mu.objectId)
 
+	m.Lock()
 	m.users[ps] = mu
+	m.Unlock()
 
 	data, err := mu.marshal()
 	s := &PlayerState{}
 	s.Unmarshal(data)
-	println(s.String())
+	//println(s.String())
 	if err != nil {
 		return errors.New("Marshal user state error")
 	}
 
-	println("notify new match user data to others", ps.UserID.String())
 	err = m.broadcastNotification(PLAYER_JOIN, []*MatchUserData{&MatchUserData{UserId: ps.UserID.Bytes(), Data: data}}, func(p Presence) bool {
 		return p == ps
 	})
@@ -151,13 +137,42 @@ func (m *match) playerJoin(ps Presence) error {
 	return nil
 }
 
-func (m *match) playerLeave(user Presence) {
-	if m.users[user].team == Hider {
-		m.hiderCount--
-	} else if m.users[user].team == Seeker {
-		m.seekerCount--
+func (m *match) playerLeave(ps Presence) {
+	m.Lock()
+	defer m.Unlock()
+
+	mp, ok := m.users[ps]
+	if ok {
+		if mp.team == Hider {
+			m.hiderCount--
+		} else if mp.team == Seeker {
+			m.seekerCount--
+		}
+		delete(m.users, ps)
 	}
-	delete(m.users, user)
+}
+
+func (m *match) playerDisconnect(sessionId uuid.UUID) {
+	m.Lock()
+	defer m.Unlock()
+
+	for ps, mp := range m.users {
+		if ps.ID.SessionID == sessionId {
+			if mp.team == Hider {
+				m.hiderCount--
+			} else if mp.team == Seeker {
+				m.seekerCount--
+			}
+			delete(m.users, ps)
+			break
+		}
+	}
+}
+
+func (m *match) isAbandoned() bool {
+	m.Lock()
+	defer m.Unlock()
+	return len(m.users) == 0
 }
 
 func (m *match) initPlayer(mu *matchPlayer) {
@@ -176,6 +191,9 @@ func (m *match) assignTeam(mu *matchPlayer) {
 }
 
 func (m *match) aggregatePlayerState(userFilter func(Presence) bool) ([]*MatchUserData, error) {
+	m.RLock()
+	defer m.RUnlock()
+
 	var s []*MatchUserData
 	for ps, mu := range m.users {
 		if userFilter != nil && userFilter(ps) {
@@ -216,14 +234,17 @@ func (m *match) op(sessionId uuid.UUID, userId uuid.UUID, meta PresenceMeta, cod
 }
 
 func (m *match) playerMove(ps Presence, data []byte) error {
+	m.RLock()
 	mu, ok := m.users[ps]
+	m.RUnlock()
+
 	if !ok {
 		return errors.New("Cound not retieve user in match")
 	}
 
 	move := &PlayerMove{}
 	err := proto.Unmarshal(data, move)
-	println("move", move.GoString())
+	//println("move", move.GoString())
 	if err == nil {
 		if move.Position != nil {
 			mu.position = vector{move.Position.X, move.Position.Y, move.Position.Z}
@@ -232,10 +253,10 @@ func (m *match) playerMove(ps Presence, data []byte) error {
 	}
 
 	outgoing := &MatchUserData{
-		UserId:ps.UserID.Bytes(),
-		Data:data,
+		UserId: ps.UserID.Bytes(),
+		Data:   data,
 	}
-	return m.broadcastNotification(PLAYER_MOVE, []*MatchUserData{outgoing},filterUser(ps))
+	return m.broadcastNotification(PLAYER_MOVE, []*MatchUserData{outgoing}, filterUser(ps))
 }
 
 func (m *match) playerHit(ps Presence, data []byte) error {
@@ -245,7 +266,7 @@ func (m *match) playerHit(ps Presence, data []byte) error {
 
 func (m *match) getMatchPlayer(sessionId uuid.UUID, userId uuid.UUID) *matchPlayer {
 	m.Lock()
-	defer func() { m.Unlock() }()
+	defer m.Unlock()
 
 	for p, m := range m.users {
 		if p.ID.SessionID == sessionId && p.UserID == userId {
@@ -256,30 +277,11 @@ func (m *match) getMatchPlayer(sessionId uuid.UUID, userId uuid.UUID) *matchPlay
 	return nil
 }
 
-//func (m *match) sendMatchData(sender Presence, receiver []Presence, op opcode, msg proto.Message) {
-//	outgoing := &Envelope{
-//		Payload: &Envelope_MatchData{
-//			MatchData: &MatchData{
-//				MatchId: m.matchId.Bytes(),
-//				Presence: &UserPresence{
-//					UserId:    sender.UserID.Bytes(),
-//					SessionId: sender.ID.SessionID.Bytes(),
-//					Handle:    sender.Meta.Handle,
-//				},
-//				OpCode: int64(op),
-//				Data:   []byte(msg.String()),
-//			},
-//		},
-//	}
-//	m.messageRouter.Send(m.logger, receiver, outgoing)
-//}
-
 type filterFunc func(Presence) bool
 
-func filterUser(ps Presence) filterFunc  {
-	return func(p Presence)bool { return p==ps}
+func filterUser(ps Presence) filterFunc {
+	return func(p Presence) bool { return p == ps }
 }
-
 
 func (m *match) broadcastNotification(op opcode, data []*MatchUserData, userFilter func(Presence) bool) error {
 	outgoing := &Envelope{Payload: &Envelope_MatchNotify{

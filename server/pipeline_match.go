@@ -123,7 +123,7 @@ func (p *pipeline) matchJoin(logger *zap.Logger, session *session, envelope *Env
 	session.Send(&Envelope{CollationId: envelope.CollationId, Payload: &Envelope_Matches{Matches: &TMatches{
 		Matches: []*Match{
 			&Match{
-				MatchId:   matchID.Bytes(),
+				MatchId: matchID.Bytes(),
 			},
 		},
 	}}})
@@ -166,7 +166,7 @@ func (p *pipeline) matchDataSend(logger *zap.Logger, session *session, envelope 
 
 	m, ok := p.matchTracker.FindMatch(matchID)
 	if ok {
-		err := m.op(session.id, session.userID, PresenceMeta{Handle:session.handle.Load()},incoming.OpCode, incoming.Data)
+		err := m.op(session.id, session.userID, PresenceMeta{Handle: session.handle.Load()}, incoming.OpCode, incoming.Data)
 		if err != nil {
 			println(err)
 		}
