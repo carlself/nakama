@@ -25,6 +25,7 @@ const (
 	PLAYER_JOIN opcode = 0
 	PLAYER_MOVE opcode = 1
 	PLAYER_HIT  opcode = 2
+	PLAYER_LEAVE opcode = 3
 )
 
 type teamType int32
@@ -296,6 +297,8 @@ func (m *match) broadcastNotification(op opcode, data []*MatchUserData, userFilt
 		return err
 	}
 
+	m.RLock()
+	defer m.RUnlock()
 	for p := range m.users {
 		if userFilter(p) {
 			continue
