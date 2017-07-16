@@ -36,6 +36,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/satori/go.uuid"
 	"go.uber.org/zap"
+	_ "net/http/pprof"
 )
 
 const (
@@ -48,6 +49,10 @@ var (
 )
 
 func main() {
+	go func() {
+		fmt.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+
 	startedAt := int64(time.Nanosecond) * time.Now().UTC().UnixNano() / int64(time.Millisecond)
 	semver := fmt.Sprintf("%s+%s", version, commitID)
 	http.DefaultClient.Timeout = 1500 * time.Millisecond // Always set default timeout on HTTP client

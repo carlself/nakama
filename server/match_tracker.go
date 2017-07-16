@@ -37,9 +37,9 @@ func NewMatchTrackerService(logger *zap.Logger, db *sql.DB, registry *SessionReg
 }
 
 func (s *matchTrackerService) Join(matchID uuid.UUID, allowEmpty bool, sessionID uuid.UUID, userID uuid.UUID, meta PresenceMeta) error {
-	s.RLock()
+	s.Lock()
+	defer  s.Unlock()
 	m, ok := s.values[matchID]
-	s.RUnlock()
 
 	if ok {
 		m.playerJoin(Presence{
@@ -47,25 +47,19 @@ func (s *matchTrackerService) Join(matchID uuid.UUID, allowEmpty bool, sessionID
 			UserID: userID,
 			Meta:   meta})
 
-		s.Lock()
 		s.sessionMatchMap[sessionID] = matchID
-		s.Unlock()
 	} else if allowEmpty {
 		m = NewMatch(s.logger, s.db, s.registry, matchID, s.name)
 		s.logger.Info("Match created", zap.String("MatchId", matchID.String()))
 
-		s.Lock()
 		s.values[matchID] = m
-		s.Unlock()
 
 		m.playerJoin(Presence{
 			ID:     PresenceID{Node: s.name, SessionID: sessionID},
 			UserID: userID,
 			Meta:   meta})
 
-		s.Lock()
 		s.sessionMatchMap[sessionID] = matchID
-		s.Unlock()
 	} else {
 		return errors.New("Match not found")
 	}
@@ -75,8 +69,8 @@ func (s *matchTrackerService) Join(matchID uuid.UUID, allowEmpty bool, sessionID
 
 func (s *matchTrackerService) Leave(matchID uuid.UUID, sessionID uuid.UUID, userID uuid.UUID, meta PresenceMeta) error {
 	s.Lock()
+	defer  s.Unlock();
 	m, ok := s.values[matchID]
-	s.Unlock()
 
 	if ok {
 		m.playerLeave(Presence{
@@ -99,8 +93,8 @@ func (s *matchTrackerService) Leave(matchID uuid.UUID, sessionID uuid.UUID, user
 
 func (s *matchTrackerService) FindMatch(matchId uuid.UUID) (*match, bool) {
 	s.RLock()
+	defer s.RUnlock()
 	m, ok := s.values[matchId]
-	s.RUnlock()
 	return m, ok
 }
 

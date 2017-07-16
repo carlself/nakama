@@ -143,12 +143,18 @@ func (m *match) playerLeave(ps Presence) {
 	defer m.Unlock()
 
 	mp, ok := m.users[ps]
+
 	if ok {
 		if mp.team == Hider {
 			m.hiderCount--
 		} else if mp.team == Seeker {
 			m.seekerCount--
 		}
+
+		m.broadcastNotification(PLAYER_LEAVE, []*MatchUserData{&MatchUserData{UserId: ps.UserID.Bytes()}}, func(p Presence) bool {
+			return p == ps
+		})
+
 		delete(m.users, ps)
 	}
 }
@@ -164,6 +170,10 @@ func (m *match) playerDisconnect(sessionId uuid.UUID) {
 			} else if mp.team == Seeker {
 				m.seekerCount--
 			}
+
+			m.broadcastNotification(PLAYER_LEAVE, []*MatchUserData{&MatchUserData{UserId: ps.UserID.Bytes()}}, func(p Presence) bool {
+				return p == ps
+			})
 			delete(m.users, ps)
 			break
 		}
@@ -297,8 +307,8 @@ func (m *match) broadcastNotification(op opcode, data []*MatchUserData, userFilt
 		return err
 	}
 
-	m.RLock()
-	defer m.RUnlock()
+	//m.RLock()
+	//defer m.RUnlock()
 	for p := range m.users {
 		if userFilter(p) {
 			continue
